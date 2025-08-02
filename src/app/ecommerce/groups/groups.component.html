@@ -26,14 +26,16 @@
           <label for="genre" class="small mb-1">Music Genre</label>
           <select
             class="form-select form-control-sm"
-            [(ngModel)]="group.musicGenreId"
+            [(ngModel)]="selectedGenreId"
             name="genre"
             required
-            Id="genre"
+            id="genre"
             style="font-size: 0.9rem"
+            (ngModelChange)="onGenreChange($event)"
+            [compareWith]="compareGenres"
           >
-            <option value="null">Select a Music Genre</option>
-            <option *ngFor="let genre of genres" [value]="genre.idMusicGenre">
+            <option [ngValue]="null">Select a Music Genre</option>
+            <option *ngFor="let genre of genres" [ngValue]="genre.idMusicGenre">
               {{ genre.nameMusicGenre }}
             </option>
           </select>

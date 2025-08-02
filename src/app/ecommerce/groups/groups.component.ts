@@ -35,6 +35,9 @@ export class GroupsComponent implements OnInit {
   };
 
   genres: any[] = [];
+  genresLoaded = false;
+  selectedGenreId: number | null = null;
+  
   constructor(
     private groupsService: GroupsService,
     private genresService: GenresService,
@@ -43,7 +46,38 @@ export class GroupsComponent implements OnInit {
 
   ngOnInit(): void {
     this.getGroups();
-    this.getGenres();
+    this.loadGenres();
+  }
+  
+  private loadGenres(): Promise<void> {
+    this.genresLoaded = false; // Make sure to mark as not loaded on startup
+    return new Promise((resolve, reject) => {
+      this.genresService.getGenres().subscribe({
+        next: (data: any) => {
+          // Verify that data is an array
+          const genresArray = Array.isArray(data) ? data : [];
+          
+          if (genresArray.length > 0) {
+            this.genres = genresArray;
+            this.genresLoaded = true;
+            resolve();
+          } else {
+            const error = new Error('No genres found');
+            console.error('Error: No genres found');
+            this.visibleError = true;
+            this.errorMessage = 'No genres found. Please try again later.';
+            reject(error);
+          }
+        },
+        error: (err) => {
+          console.error('Error loading genres:', err);
+          this.visibleError = true;
+          this.errorMessage = 'Error loading genres. Please try again.';
+          this.controlError(err);
+          reject(err);
+        },
+      });
+    });
   }
 
   getGroups() {
@@ -57,20 +91,6 @@ export class GroupsComponent implements OnInit {
         console.error('Error fetching groups:', err);
         this.visibleError = true;
         this.errorMessage = 'Failed to load groups. Please try again.';
-      },
-    });
-  }
-
-  getGenres() {
-    this.genresService.getGenres().subscribe({
-      next: (data: any) => {
-        // Extract the `$values` property from the response
-        const genresArray = data.$values || []; // If `$values` does not exist, use an empty array
-        this.genres = Array.isArray(genresArray) ? genresArray : [];
-      },
-      error: (err) => {
-        this.visibleError = true;
-        this.controlError(err);
       },
     });
   }
@@ -115,11 +135,61 @@ export class GroupsComponent implements OnInit {
     }
   }
 
-  edit(group: IGroup) {
-    this.group = { ...group };
-    this.group.photoName = group.imageGroup
-      ? this.extractNameImage(group.imageGroup)
-      : '';
+  async edit(group: IGroup) {
+    // Force reload of genres every time you edit
+    try {
+      await this.loadGenres();
+    } catch (error) {
+      console.error('Error loading genres:', error);
+      return;
+    }
+    
+    // Verify that we have genres before continuing
+    if (this.genres.length === 0) {
+      console.error('No genres available');
+      this.visibleError = true;
+      this.errorMessage = 'Genres cannot be loaded. Please try again.';
+      return;
+    }
+    
+    // Verify that the genre of the group exists in the list of genres
+    const genreFound = this.genres.some(g => g.idMusicGenre === group.musicGenreId);
+    
+    // If the genre does not exist, use the first genre available
+    if (!genreFound && this.genres.length > 0) {
+      this.selectedGenreId = this.genres[0].idMusicGenre;
+      this.group.musicGenreId = this.genres[0].idMusicGenre;
+      this.group.musicGenre = this.genres[0].nameMusicGenre;
+    } else {
+      this.selectedGenreId = group.musicGenreId || null;
+    }
+
+    // Make a deep copy of the group
+    this.group = { 
+      ...group,
+      photo: null,
+      photoName: group.imageGroup ? this.extractNameImage(group.imageGroup) : ''
+    };
+    
+    // Search for the genre by ID if available
+    if (this.group.musicGenreId) {
+      const genre = this.genres.find(g => g.idMusicGenre === this.group.musicGenreId);
+      if (genre) {
+        this.group.musicGenre = genre.nameMusicGenre;
+        this.group.musicGenreId = genre.idMusicGenre;
+      }
+    } 
+    // If there is no ID but there is a genre name, search by name
+    else if (this.group.musicGenre) {
+      const selectedGenre = this.genres.find(g => 
+        g.nameMusicGenre.toLowerCase() === this.group.musicGenre?.toLowerCase()
+      );
+      
+      if (selectedGenre) {
+        this.group.musicGenreId = selectedGenre.idMusicGenre;
+        this.group.musicGenre = selectedGenre.nameMusicGenre;
+      }
+    }
   }
 
   extractNameImage(url: string): string {
@@ -190,6 +260,25 @@ export class GroupsComponent implements OnInit {
       this.group = group;
       this.photo = group.imageGroup!;
       this.visiblePhoto = true;
+    }
+  }
+
+  // Comparator for the genre select
+  compareGenres(genre1: any, genre2: any): boolean {
+    return genre1 && genre2 ? genre1.idMusicGenre === genre2.idMusicGenre : genre1 === genre2;
+  }
+
+  onGenreChange(genreId: number | null) {
+    this.selectedGenreId = genreId;
+    if (genreId) {
+      const selectedGenre = this.genres.find(g => g.idMusicGenre === genreId);
+      if (selectedGenre) {
+        this.group.musicGenre = selectedGenre.nameMusicGenre;
+        this.group.musicGenreId = selectedGenre.idMusicGenre;
+      }
+    } else {
+      this.group.musicGenre = '';
+      this.group.musicGenreId = 0;
     }
   }
 }
