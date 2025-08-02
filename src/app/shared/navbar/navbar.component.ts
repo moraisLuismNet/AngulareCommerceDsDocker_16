@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { UserService } from 'src/app/services/user.service';
 import { Router, NavigationEnd } from '@angular/router';
 import { CartService } from 'src/app/ecommerce/services/cart.service';
@@ -22,7 +22,8 @@ export class NavbarComponent implements OnInit, OnDestroy {
   constructor(
     private readonly userService: UserService,
     private readonly router: Router,
-    private readonly cartService: CartService
+    private readonly cartService: CartService,
+    private readonly changeDetector: ChangeDetectorRef
   ) {
     // Initialize the current route
     this.currentRoute = this.router.url;
@@ -64,15 +65,29 @@ export class NavbarComponent implements OnInit, OnDestroy {
     // Subscription to cart item count
     this.cartService.cartItemCount$
       .pipe(takeUntil(this.destroy$))
-      .subscribe((count) => {
-        this.cartItemsCount = count;
+      .subscribe({
+        next: (count) => {
+          this.cartItemsCount = count;
+          // Force change detection
+          setTimeout(() => {
+            this.changeDetector.detectChanges();
+          });
+        },
+        error: (err) => console.error('Error en cartItemCount$:', err)
       });
 
     // Subscription to cart total
     this.cartService.cartTotal$
       .pipe(takeUntil(this.destroy$))
-      .subscribe((total) => {
-        this.cartTotal = total;
+      .subscribe({
+        next: (total) => {
+          this.cartTotal = total;
+          // Force change detection
+          setTimeout(() => {
+            this.changeDetector.detectChanges();
+          });
+        },
+        error: (err) => console.error('Error in cartTotal$:', err)
       });
 
     // Subscription to router events

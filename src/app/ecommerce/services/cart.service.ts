@@ -42,26 +42,32 @@ export class CartService implements OnDestroy {
   private setupUserSubscription(): void {
     this.userService.emailUser$
       .pipe(takeUntil(this.destroy$))
-      .subscribe((email) => {
-        if (email) {
-          this.initializeCartForUser(email);
-        } else {
-          this.resetCart();
-        }
+      .subscribe({
+        next: (email) => {
+          if (email) {
+            this.initializeCartForUser(email);
+          } else {
+            this.resetCart();
+          }
+        },
+        error: (err) => console.error('Error subscribing to emailUser$:', err)
       });
   }
 
   private initializeCartForUser(email: string): void {
-    // First we try to load from localStorage
+    // First we synchronize with the backend
+    this.syncCartWithBackend(email);
+    
+    // Then we load from localStorage only if there is no data from the backend
     const savedCart = this.getCartForUser(email);
     if (savedCart && savedCart.length > 0) {
-      this.cartSubject.next(savedCart);
-      this.cartItemCountSubject.next(savedCart.length);
-      this.calculateAndUpdateLocalTotal();
+      const totalItems = savedCart.reduce((sum, item) => sum + (item.amount || 1), 0);
+      const totalPrice = savedCart.reduce((sum, item) => sum + ((item.price || 0) * (item.amount || 1)), 0);
+      
+      this.cartSubject.next([...savedCart]);
+      this.cartItemCountSubject.next(totalItems);
+      this.cartTotalSubject.next(totalPrice);
     }
-
-    // Then we sync with the backend
-    this.syncCartWithBackend(email);
   }
 
   resetCart(): void {
@@ -86,44 +92,69 @@ export class CartService implements OnDestroy {
     );
   }
   syncCartWithBackend(email: string): void {
-    if (!email) return;
-
+    if (!email) {
+      console.log('Unable to sync cart: email not provided');
+      return;
+    }
+    
     this.cartDetailService
       .getCartDetails(email)
       .pipe(takeUntil(this.destroy$))
-      .subscribe(
-        (response: any) => {
-          const cartDetails = response?.$values || [];
-          const updatedCart = cartDetails.map((detail: any) => ({
-            ...detail,
-            amount: Number(detail.amount) || 1,
-            inCart: true,
-            idRecord: detail.recordId,
-            price: Number(detail.price) || 0,
-            title: detail.titleRecord,
-            image: detail.imageRecord,
-            stock: detail.stock || 0,
-          }));
-
-          // Update the inCart status of existing records
-          const records = this.cartSubject.value;
-          records.forEach((record) => {
-            const inCart = updatedCart.some(
-              (item: IRecord) => item.idRecord === record.idRecord
-            );
-            record.inCart = inCart;
-            if (!inCart) {
-              record.amount = 0;
-            }
+      .subscribe({
+        next: (response: any) => {
+          // Handle different response formats
+          let cartDetails = [];
+          if (Array.isArray(response)) {
+            cartDetails = response;
+          } else if (response?.$values && Array.isArray(response.$values)) {
+            cartDetails = response.$values;
+          } else if (response) {
+            // If it's a single object, convert it to an array
+            cartDetails = [response];
+          }
+          
+          // Map the cart details to the expected format
+          const updatedCart = cartDetails.map((detail: any) => {
+            const item = {
+              ...detail,
+              amount: Number(detail.amount) || 1,
+              inCart: true,
+              idRecord: detail.recordId || detail.idRecord,
+              price: Number(detail.price) || 0,
+              title: detail.titleRecord || detail.title || 'Untitled',
+              image: detail.imageRecord || detail.image || '',
+              stock: detail.stock || 0,
+            };
+            return item;
           });
+          
+          // Calculate total items summing the quantities
+          const totalItems = updatedCart.reduce(
+            (total: number, item: any) => total + (Number(item.amount) || 0),
+            0
+          );
 
-          this.updateCartState(updatedCart);
+          // Calculate cart total
+          const cartTotal = updatedCart.reduce(
+            (total: number, item: any) => 
+              total + (Number(item.price) || 0) * (Number(item.amount) || 0),
+            0
+          );
+          
+          // Update states atomically
+          this.cartSubject.next([...updatedCart]);
+          this.cartItemCountSubject.next(totalItems);
+          this.cartTotalSubject.next(cartTotal);
+          
+          // Save in localStorage
+          this.saveCartForUser(email, updatedCart);
         },
-        (error) => {
+        error: (error) => {
           console.error('Error syncing cart with backend:', error);
-          this.resetCart();
+          // No reset the cart in case of error, maintain the current state
+          console.log('Maintaining the current cart state');
         }
-      );
+      });
   }
 
   addToCart(record: IRecord): Observable<any> {

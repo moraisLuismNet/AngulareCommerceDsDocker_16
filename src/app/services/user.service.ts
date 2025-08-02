@@ -43,7 +43,11 @@ export class UserService implements OnDestroy {
     if (currentEmail && currentEmail !== email) {
       this.cleanUserLocalData(currentEmail);
     }
-    this.emailSubject.next(email);
+    // Force a new emission even if the email is the same
+    this.emailSubject.next(null);
+    setTimeout(() => {
+      this.emailSubject.next(email);
+    });
   }
 
   setRole(role: string): void {
